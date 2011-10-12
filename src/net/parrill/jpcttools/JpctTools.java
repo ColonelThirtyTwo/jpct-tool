@@ -16,15 +16,15 @@ import com.threed.jpct.Animation;
 import com.threed.jpct.Mesh;
 import com.threed.jpct.OcTree;
 import java.io.FileFilter;
+import java.io.FilenameFilter;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -48,12 +48,12 @@ public class JpctTools
 		{
 			for(String path : compileargs.files)
 			{
-				System.out.println("Compiling "+path);
+				System.out.println("--- Loading "+path);
 				String out = getNoExtension(path).concat(".jpct");
 				try
 				{
 					Object3D[] objs = loadFile(path);
-					System.out.println("Loaded "+objs.length+" objects.");
+					System.out.println("--- Loaded "+objs.length+" objects.");
 					Animation anim = null;
 					if(compileargs.animfile != null)
 					{
@@ -68,27 +68,35 @@ public class JpctTools
 
 					}
 					
-					System.out.println("Compiling:");
-					for(Object3D obj : objs)
+					System.out.println("--- Compiling:");
+					for(int i=0; i<objs.length; i++)
 					{
+						Object3D obj = objs[i];
+						System.out.println("--  Compiling object "+i+": "+obj.getName());
 						if(compileargs.octree)
 						{
-							System.out.println("Generating octree for "+obj.getName());
+							System.out.println("-   Generating octree.");
 							OcTree tree = new OcTree(obj,20,OcTree.MODE_OPTIMIZED);
 							obj.setOcTree(tree);
+							System.out.println("-   Octree generated.");
 						}
 						if(anim != null)
+						{
+							System.out.println("-   Setting animation.");
 							obj.setAnimationSequence(anim);
+						}
 						
 						obj.build();
 						obj.compileAndStrip();
+						
+						System.out.println("--  Done compiling object.");
 					}
 
-					System.out.println("Objects compiled, saving.");
+					System.out.println("--- Objects compiled, saving.");
 					FileOutputStream outf = new FileOutputStream(new File(out));
 					DeSerializer serial = new DeSerializer();
 					serial.serializeArray(objs, outf, true);
-					System.out.println("Compiled "+path+"\n");
+					System.out.println("--- Compiled "+path+"\n");
 				}
 				catch(IOException ex)
 				{
@@ -101,26 +109,40 @@ public class JpctTools
 			File dir = new File(animargs.in == null ? "./" : animargs.in.get(0));
 			if(!dir.exists() || !dir.isDirectory())
 			{
-				System.err.println(dir.getName()+" does not exist or is not a directory");
+				System.err.println("-!  "+dir.getName()+" does not exist or is not a directory");
 				return;
 			}
 			
-			System.out.println("Creating animations for "+dir.getName());
+			System.out.println("--- Creating animations for "+dir.getName());
 			
 			FileFilter subseqfilter = new FileFilter()
 			{
 				public boolean accept(File f)
 				{
-					return f.isDirectory() && f.getName().matches("^[0-9]+_");
+					boolean accept = f.isDirectory() && f.getName().matches("^\\d+_.+$");
+					if(!accept)
+						System.out.println("-!  Ignoring "+f.getName());
+					return accept;
 				}
 			};
 			
-			FileFilter modelfilter = new FileFilter()
+			FilenameFilter modelfilter = new FilenameFilter()
 			{
-				public boolean accept(File f)
+				public boolean accept(File dir, String f)
 				{
-					return getExtension(f.getPath()).equals(animargs.extension);
+					return getExtension(f).equals(animargs.extension);
 				}
+			};
+			
+			Comparator<Object3D> objcomparator = new Comparator<Object3D>()
+			{
+
+				@Override
+				public int compare(Object3D o1, Object3D o2)
+				{
+					return o1.getName().compareTo(o2.getName());
+				}
+				
 			};
 			
 			File outputFile = new File(animargs.out == null ? dir.getName()+".jpctanim" : animargs.out);
@@ -135,28 +157,60 @@ public class JpctTools
 			{
 				File subseq = subanimFiles[j];
 				String name = subseq.getName();
-				System.out.println("-- Creating subsequence "+name+" --");
+				System.out.println("--  Creating subsequence "+name);
 
 				File[] models = subseq.listFiles(modelfilter);
 				Arrays.sort(models);
-				Mesh[] meshes = new Mesh[models.length];
-
-				for(int k=0; k<models.length; k++)
+				Mesh[] meshes;
+				
+				String[] models_str = subseq.list(modelfilter);
+				Arrays.sort(models_str);
+				if(Arrays.binarySearch(models_str, "frames."+animargs.extension) >= 0)
 				{
-					framecount++;
-					Object3D obj = loadFile(models[k].getPath())[0];
-					obj.build();
-					meshes[k] = obj.getMesh();
+					
+					Object3D[] objs = loadFile(subseq.getPath()+File.separatorChar+"frames."+animargs.extension);
+					Arrays.sort(objs, objcomparator);
+					meshes = new Mesh[objs.length];
+					for(int k=0; k<objs.length; k++)
+					{
+						framecount++;
+						Object3D obj = objs[k];
+						obj.build();
+
+						Mesh m = obj.getMesh();
+						m.setSerializeMethod(Mesh.SERIALIZE_VERTICES_ONLY);
+						System.out.println("-   Keyframe "+k+" has "+m.getVertexCount()+" verticies ("+m.getUniqueVertexCount()+" unique).");
+						m.strip();
+						m.compress();
+						meshes[k] = m;
+					}
+				}
+				else
+				{
+					meshes = new Mesh[models.length];
+					for(int k=0; k<models.length; k++)
+					{
+						framecount++;
+						Object3D obj = loadFile(models[k].getPath())[0];
+						obj.build();
+
+						Mesh m = obj.getMesh();
+						m.setSerializeMethod(Mesh.SERIALIZE_VERTICES_ONLY);
+						System.out.println("-   Keyframe "+k+" has "+m.getVertexCount()+" verticies ("+m.getUniqueVertexCount()+" unique).");
+						m.strip();
+						m.compress();
+						meshes[k] = m;
+					}
 				}
 				subanims.put(j+1, meshes);
 				subanimnames.put(j+1, name);
-				System.out.println("-- End subsequence --");
+				System.out.println("--  End subsequence");
 			}
 			Animation anim = new Animation(framecount);
 			for(Entry<Integer,Mesh[]> en : subanims.entrySet())
 			{
 				int i = anim.createSubSequence(subanimnames.get(en.getKey()));
-				if(i != en.getKey()) System.err.println("Subanimation "+en.getKey()+" was given sequence index "+i);
+				if(i != en.getKey()) System.err.println("-!  Subanimation "+en.getKey()+" was given sequence index "+i);
 				Mesh[] meshes = en.getValue();
 				for(int j=0; j<meshes.length; j++)
 					anim.addKeyFrame(meshes[j]);
@@ -170,7 +224,7 @@ public class JpctTools
 			ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(outputFile));
 			out.writeObject(anim);
 			out.close();
-			System.out.println("Animations written to "+outputFile.getPath());
+			System.out.println("--- Animations written to "+outputFile.getPath());
 		}
 		else
 		{
@@ -185,23 +239,23 @@ public class JpctTools
 		String folder = getFolder(path);
 		if(ext.equals("3ds"))
 		{
-			System.out.println("Loading 3ds textures");
+			//System.out.println("Loading 3ds textures");
 			String[] textures = Loader.readTextureNames3DS(path);
 			for(String s : textures)
 			{
 				if(TextureManager.getInstance().containsTexture(s)) continue;
 				File f = new File(folder.concat(s).concat(".png"));
-				if(!f.exists()) { System.err.println("Didn't find "+s+".png"); continue; }
+				if(!f.exists()) { System.err.println("-!  Didn't find texture "+s+".png"); continue; }
 				Texture t = new Texture(new FileInputStream(f));
 				TextureManager.getInstance().addTexture(s, t);
 			}
-			System.out.println("Loading 3ds model");
+			System.out.println("Loading 3ds model: "+path);
 			return Loader.load3DS(path, 1f);
 		}
 		else if(ext.equals("obj"))
 			return Loader.loadOBJ(path, getNoExtension(path).concat(".mtl"), 1f);
 		else
-			throw new IllegalArgumentException("unknown type");
+			throw new IllegalArgumentException("unknown model type: "+path);
 	}
 	
 	public static String concatPath(String[] args, int start)
