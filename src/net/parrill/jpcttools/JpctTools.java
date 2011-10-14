@@ -73,6 +73,7 @@ public class JpctTools
 					{
 						Object3D obj = objs[i];
 						System.out.println("--  Compiling object "+i+": "+obj.getName());
+						obj.calcBoundingBox();
 						if(compileargs.octree)
 						{
 							System.out.println("-   Generating octree.");
