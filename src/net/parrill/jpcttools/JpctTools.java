@@ -142,13 +142,11 @@ public class JpctTools
 			
 			Comparator<Object3D> objcomparator = new Comparator<Object3D>()
 			{
-
 				@Override
 				public int compare(Object3D o1, Object3D o2)
 				{
 					return o1.getName().compareTo(o2.getName());
 				}
-				
 			};
 			
 			File outputFile = new File(animargs.out == null ? dir.getName()+".jpctanim" : animargs.out);
@@ -163,54 +161,25 @@ public class JpctTools
 				String name = subseq.getName();
 				System.out.println("--  Creating subsequence "+name);
 
-				File[] models = subseq.listFiles(modelfilter);
-				Arrays.sort(models);
-				Mesh[] meshes;
-				
-				String[] models_str = subseq.list(modelfilter);
-				Arrays.sort(models_str);
-				if(Arrays.binarySearch(models_str, "frames."+animargs.extension) >= 0)
-				{
-					
-					Object3D[] objs = loadFile(subseq.getPath()+File.separatorChar+"frames."+animargs.extension);
-					Arrays.sort(objs, objcomparator);
-					meshes = new Mesh[objs.length];
-					for(int k=0; k<objs.length; k++)
-					{
-						framecount++;
-						Object3D obj = objs[k];
-						obj.build();
-
-						Mesh m = obj.getMesh();
-						m.setSerializeMethod(Mesh.SERIALIZE_VERTICES_ONLY);
-						System.out.println("-   Keyframe "+k+" has "+m.getVertexCount()+" verticies ("+m.getUniqueVertexCount()+" unique).");
-						m.strip();
-						m.compress();
-						meshes[k] = m;
-					}
-				}
-				else
-				{
-					meshes = new Mesh[models.length];
-					for(int k=0; k<models.length; k++)
-					{
-						framecount++;
-						Object3D obj = loadFile(models[k].getPath())[0];
-						obj.build();
-
-						Mesh m = obj.getMesh();
-						m.setSerializeMethod(Mesh.SERIALIZE_VERTICES_ONLY);
-						System.out.println("-   Keyframe "+k+" has "+m.getVertexCount()+" verticies ("+m.getUniqueVertexCount()+" unique).");
-						m.strip();
-						m.compress();
-						meshes[k] = m;
-					}
-				}
+				Mesh[] meshes = loadFrames(subseq, animargs.extension);
+				framecount += meshes.length;
 				subanims.put(j+1, meshes);
 				subanimnames.put(j+1, name);
 				System.out.println("--  End subsequence");
 			}
 			Animation anim = new Animation(framecount);
+			
+			Integer interpolation = AnimArgs.interpolation_modes.get(animargs.interpolation);
+			Integer clamping = AnimArgs.clamping_modes.get(animargs.clamping);
+			
+			if(interpolation == null || clamping == null)
+			{
+				System.err.println("Invalid paramter.");
+				System.exit(1);
+			}
+			anim.setInterpolationMethod(interpolation.intValue());
+			anim.setClampingMode(clamping.intValue());
+			
 			for(Entry<Integer,Mesh[]> en : subanims.entrySet())
 			{
 				int i = anim.createSubSequence(subanimnames.get(en.getKey()));
@@ -233,6 +202,53 @@ public class JpctTools
 			jc.usage();
 		}
 		
+	}
+	
+	public static Mesh[] loadFrames(File dir, final String ext) throws IOException
+	{
+		FilenameFilter modelfilter = new FilenameFilter()
+		{
+			public boolean accept(File dir, String f)
+			{
+				return getExtension(f).equals(ext);
+			}
+		};
+		Comparator<Object3D> objcomparator = new Comparator<Object3D>()
+		{
+			@Override
+			public int compare(Object3D o1, Object3D o2)
+			{
+				return o1.getName().compareTo(o2.getName());
+			}
+		};
+		
+		String[] files = dir.list(modelfilter);
+		Arrays.sort(files);
+		Object3D[] objs;
+		
+		if(Arrays.binarySearch(files, "frames."+ext) >= 0)
+			objs = loadFile(dir.getPath()+File.separatorChar+"frames."+ext);
+		else
+		{
+			objs = new Object3D[files.length];
+			for(int i=0; i<files.length; i++)
+				objs[i] = loadFile(dir.getPath()+File.separatorChar+files[i])[0];
+		}
+		Arrays.sort(objs, objcomparator);
+		
+		Mesh[] meshes = new Mesh[objs.length];
+		for(int i=0; i<meshes.length; i++)
+		{
+			Object3D obj = objs[i];
+			obj.build(); // Calc normals and stuff
+			Mesh m = obj.getMesh();
+			meshes[i] = m;
+			
+			m.setSerializeMethod(Mesh.SERIALIZE_VERTICES_ONLY);
+			m.strip();
+			m.compress();
+		}
+		return meshes;
 	}
 	
 	public static Object3D[] loadFile(String path) throws IOException
