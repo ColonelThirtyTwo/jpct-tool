@@ -77,7 +77,12 @@ public class JpctTools
 						if(compileargs.octree)
 						{
 							System.out.println("-   Generating octree.");
-							OcTree tree = new OcTree(obj,20,OcTree.MODE_OPTIMIZED);
+							OcTree tree;
+							if(compileargs.maxdepth > 0)
+								tree = new OcTree(obj,compileargs.maxpolys,compileargs.maxdepth,OcTree.MODE_OPTIMIZED);
+							else
+								tree = new OcTree(obj,compileargs.maxpolys,OcTree.MODE_OPTIMIZED);
+							
 							obj.setOcTree(tree);
 							System.out.println("-   Octree generated.");
 						}
@@ -147,8 +152,6 @@ public class JpctTools
 			};
 			
 			File outputFile = new File(animargs.out == null ? dir.getName()+".jpctanim" : animargs.out);
-			File aliasOutputFile = new File(getNoExtension(outputFile.getPath())+".txt");
-				
 			File[] subanimFiles = dir.listFiles(subseqfilter);
 			Arrays.sort(subanimFiles);
 			int framecount = 0;
@@ -220,8 +223,6 @@ public class JpctTools
 			
 			outputFile.delete();
 			outputFile.createNewFile();
-			aliasOutputFile.delete();
-			aliasOutputFile.createNewFile();
 			ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(outputFile));
 			out.writeObject(anim);
 			out.close();
